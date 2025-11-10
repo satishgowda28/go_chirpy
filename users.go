@@ -18,6 +18,8 @@ type User struct {
 	CreatedAt time.Time `json:"created_at"`
 	UpadatedAt time.Time `json:"updated_at"`
 	Email string `json:"email"`
+	Token string `json:"token"`
+	RefreshToken string `json:"refresh_token"`
 }
 
 func (cfg *apiConfig) handleCreateUser(w http.ResponseWriter, r *http.Request) {
@@ -66,12 +68,12 @@ func (cfg *apiConfig) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 }
 
 func (cfg *apiConfig) handleLogin(w http.ResponseWriter, r *http.Request) {
+
 	type params struct {
 		Email string `json:"Email"`
 		Password string `json:"password"`
+		ExpireInSeconds int `json:"expires_in_seconds"`
 	}
-
-	
 
 	loginParams := params{}
 	decoder := json.NewDecoder(r.Body)
@@ -79,6 +81,7 @@ func (cfg *apiConfig) handleLogin(w http.ResponseWriter, r *http.Request) {
 		respondWithError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+
 	user, err := cfg.db.GetUserByEmail(r.Context(), loginParams.Email)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -95,9 +98,98 @@ func (cfg *apiConfig) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	respondWithJSON(w, http.StatusOK, User{
-		ID: user.ID, CreatedAt: user.CreatedAt, UpadatedAt: user.UpdatedAt, Email: user.Email,
+	expireIn := time.Hour
+	if loginParams.ExpireInSeconds != 0 && loginParams.ExpireInSeconds <= 3600 {
+		expireIn = time.Duration(loginParams.ExpireInSeconds) * time.Second
+	}
+	jwtToken, err := auth.MakeJWT(user.ID, cfg.secret, expireIn)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Issue with toekn generation")
+		return
+	}
+
+	refreshToken, err := auth.MakeRefreshToken()
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	rfToken, err := cfg.db.CreateRefreshToken(r.Context(), database.CreateRefreshTokenParams{
+		Token: refreshToken,
+		UserID: user.ID,
 	})
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	
+	respondWithJSON(w, http.StatusOK, User{
+		ID: user.ID,
+		CreatedAt: user.CreatedAt,
+		UpadatedAt: user.UpdatedAt,
+		Email: user.Email,
+		Token: jwtToken,
+		RefreshToken: rfToken.Token,
+	})
+}
 
+func (cfg *apiConfig) handleUpdateCreds(w http.ResponseWriter, r *http.Request) {
+	type params struct {
+		Email string `json:"email"`
+		Password string `json:"password"`
+	}
 
+	type response struct {
+		Email string `json:"email"`
+	}
+
+	newCreds := params{}
+	decoder := json.NewDecoder(r.Body)
+	err := decoder.Decode(&newCreds)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "error in decoding data")
+		return
+	}
+
+	authToken, err := auth.GetBearerToken(r.Header)
+	if err != nil {
+		respondWithError(w, http.StatusUnauthorized, err.Error())
+		return
+	}
+
+	userID, err := auth.ValidateJWT(authToken, cfg.secret)
+	if err != nil {
+		respondWithError(w, http.StatusUnauthorized, err.Error())
+		return
+	}
+
+	user, err := cfg.db.GetUserByID(r.Context(), userID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			respondWithError(w, http.StatusNotFound, "user with this email is not present")
+			return
+		}
+		respondWithError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	hashedPassword, err := auth.HashPassord(newCreds.Password)
+	if err != nil {
+		respondWithError(w, http.StatusUnauthorized, err.Error())
+		return
+	}
+
+	user, err = cfg.db.UpdateUserCreds(r.Context(), database.UpdateUserCredsParams{
+		Email: newCreds.Email,
+		HashedPassword: hashedPassword,
+		ID: user.ID,
+	})
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	respondWithJSON(w, http.StatusOK, response{
+		Email: user.Email,
+	})
 }

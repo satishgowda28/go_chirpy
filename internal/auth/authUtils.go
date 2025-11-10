@@ -1,7 +1,11 @@
 package auth
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
+	"net/http"
+	"strings"
 	"time"
 
 	"github.com/alexedwards/argon2id"
@@ -62,5 +66,32 @@ func ValidateJWT(tokenString, tokenSecret string) (uuid.UUID, error) {
 	return id, nil
 }
 
+func GetBearerToken(header http.Header) (string, error) {
+	authToken := header.Get("Authorization")
+	if authToken == "" {
+		return "", errors.New("auth token is empty")
+	}
+	if !strings.HasPrefix(authToken, "Bearer ") {
+		return "", errors.New("invalid auth token")
+	}
+	token := strings.TrimPrefix(authToken, "Bearer ")
+	token = strings.TrimSpace(token)
+
+	if token == "" {
+		return "", errors.New("bearer token is empty")
+
+	}
+	return token, nil
+}
+
+func MakeRefreshToken() (string, error) {
+	key := make([]byte, 32)
+	_, err := rand.Read(key)
+	if err != nil {
+		return "", err
+	}
+	encodedStr := hex.EncodeToString([]byte(key))
+	return encodedStr, nil
+}
 
 

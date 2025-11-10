@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/satishgowda28/go_chirpy/internal/auth"
 	"github.com/satishgowda28/go_chirpy/internal/database"
 )
 
@@ -23,12 +24,25 @@ type Chirp struct {
 func (cfg *apiConfig) handleCreateChirp(w http.ResponseWriter, r *http.Request) {
 	type parameter struct {
 		Body string `json:"body"`
-		UserID uuid.UUID `json:"user_id"`
+		// UserID uuid.UUID `json:"user_id"`
 	}
 
+	authToken, err := auth.GetBearerToken(r.Header)
+	if err != nil {
+		respondWithError(w, http.StatusUnauthorized, err.Error())
+		return
+	}
+
+	userID, err := auth.ValidateJWT(authToken, cfg.secret)
+	if err != nil {
+		respondWithError(w, http.StatusUnauthorized, err.Error())
+		return
+	}
+
+
 	params := parameter{}
-	decode := json.NewDecoder(r.Body)
-	if err := decode.Decode(&params); err != nil {
+	decoder := json.NewDecoder(r.Body)
+	if err := decoder.Decode(&params); err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Issue in decoding the params")
 		return
 	}
@@ -39,7 +53,7 @@ func (cfg *apiConfig) handleCreateChirp(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	chirp, err := cfg.db.CreateChirp(r.Context(), database.CreateChirpParams{Body: cleanBody, UserID: params.UserID})
+	chirp, err := cfg.db.CreateChirp(r.Context(), database.CreateChirpParams{Body: cleanBody, UserID: userID})
 	if err != nil {
 		errstr := fmt.Sprintf("issue in inserting in table: %s",err)
 		respondWithError(w, http.StatusInternalServerError, errstr)

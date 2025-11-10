@@ -16,6 +16,7 @@ import (
 type apiConfig struct {
 	fileServerHits atomic.Int32
 	db *database.Queries
+	secret string
 }
 
 func handleFileServe(w http.ResponseWriter, r *http.Request) {
@@ -29,10 +30,9 @@ func main () {
 
 	godotenv.Load()
 
-
-
 	port := "8080"
 	dbURL := os.Getenv("DB_URL")
+	tokenSec := os.Getenv("TOKEN_SEC")
 	if dbURL == "" {
 		log.Fatal("DB_URL must be set")
 	}
@@ -48,6 +48,7 @@ func main () {
 	apiCfg := apiConfig{
 		fileServerHits: atomic.Int32{},
 		db: dbQueries,
+		secret: tokenSec,
 	}
 	mux.Handle("/app/assets/", apiCfg.middlewareMetricsInc(http.StripPrefix("/app", http.FileServer(http.Dir("./")))))
 	mux.Handle("/app/", apiCfg.middlewareMetricsInc(http.HandlerFunc(handleFileServe)))
@@ -60,10 +61,14 @@ func main () {
 	// mux.HandleFunc("POST /api/validate_chirp", handleChirpValidation)
 
 	mux.HandleFunc("POST /api/users", apiCfg.handleCreateUser)
+	mux.HandleFunc("PUT /api/users", apiCfg.handleUpdateCreds)
 	mux.HandleFunc("POST /api/login", apiCfg.handleLogin)
+	mux.HandleFunc("POST /api/refresh", apiCfg.handleResetToken)
+	mux.HandleFunc("POST /api/revoke", apiCfg.handleRevokeRefreshToken)
 	mux.HandleFunc("POST /api/chirps", apiCfg.handleCreateChirp)
 	mux.HandleFunc("GET /api/chirps", apiCfg.getAllChirps)
 	mux.HandleFunc("GET /api/chirps/{chirpID}", apiCfg.getChirp)
+	mux.HandleFunc("DELETE /api/chirps/{chirpID}", apiCfg.handleDeleteChirp)
 
 	/* TESTING ---- Pathvalue */
 	/* mux.HandleFunc("GET /api/test/{id}/{name}", func(w http.ResponseWriter, r *http.Request) {
