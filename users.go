@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -14,17 +15,18 @@ import (
 )
 
 type User struct {
-	ID uuid.UUID `json:"id"`
-	CreatedAt time.Time `json:"created_at"`
-	UpadatedAt time.Time `json:"updated_at"`
-	Email string `json:"email"`
-	Token string `json:"token"`
-	RefreshToken string `json:"refresh_token"`
+	ID           uuid.UUID `json:"id"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpadatedAt   time.Time `json:"updated_at"`
+	Email        string    `json:"email"`
+	Token        string    `json:"token"`
+	RefreshToken string    `json:"refresh_token"`
+	IsChirpRed   bool      `json:"is_chirpy_red"`
 }
 
 func (cfg *apiConfig) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 	type newUserData struct {
-		Email string `json:"email"`
+		Email    string `json:"email"`
 		Password string `json:"password"`
 	}
 	type response struct {
@@ -55,7 +57,7 @@ func (cfg *apiConfig) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	user, err := cfg.db.CreateUser(r.Context(), database.CreateUserParams{
-		Email: newUser.Email,
+		Email:          newUser.Email,
 		HashedPassword: hashedPassword,
 	})
 	if err != nil {
@@ -64,15 +66,21 @@ func (cfg *apiConfig) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	respondWithJSON(w, 201, response{User: User{ID: user.ID, CreatedAt: user.CreatedAt, UpadatedAt: user.UpdatedAt, Email: user.Email}})
+	respondWithJSON(w, 201, response{User: User{
+		ID:         user.ID,
+		CreatedAt:  user.CreatedAt,
+		UpadatedAt: user.UpdatedAt,
+		Email:      user.Email,
+		IsChirpRed: user.IsChirpyRed.Bool,
+	}})
 }
 
 func (cfg *apiConfig) handleLogin(w http.ResponseWriter, r *http.Request) {
 
 	type params struct {
-		Email string `json:"Email"`
-		Password string `json:"password"`
-		ExpireInSeconds int `json:"expires_in_seconds"`
+		Email           string `json:"Email"`
+		Password        string `json:"password"`
+		ExpireInSeconds int    `json:"expires_in_seconds"`
 	}
 
 	loginParams := params{}
@@ -93,7 +101,7 @@ func (cfg *apiConfig) handleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	mached, _ := auth.CheckPasswordHash(loginParams.Password, user.HashedPassword)
-	if !mached  {
+	if !mached {
 		respondWithError(w, http.StatusUnauthorized, "Use is not authorized")
 		return
 	}
@@ -115,27 +123,28 @@ func (cfg *apiConfig) handleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	rfToken, err := cfg.db.CreateRefreshToken(r.Context(), database.CreateRefreshTokenParams{
-		Token: refreshToken,
+		Token:  refreshToken,
 		UserID: user.ID,
 	})
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	
+
 	respondWithJSON(w, http.StatusOK, User{
-		ID: user.ID,
-		CreatedAt: user.CreatedAt,
-		UpadatedAt: user.UpdatedAt,
-		Email: user.Email,
-		Token: jwtToken,
+		ID:           user.ID,
+		CreatedAt:    user.CreatedAt,
+		UpadatedAt:   user.UpdatedAt,
+		Email:        user.Email,
+		Token:        jwtToken,
 		RefreshToken: rfToken.Token,
+		IsChirpRed:   user.IsChirpyRed.Bool,
 	})
 }
 
 func (cfg *apiConfig) handleUpdateCreds(w http.ResponseWriter, r *http.Request) {
 	type params struct {
-		Email string `json:"email"`
+		Email    string `json:"email"`
 		Password string `json:"password"`
 	}
 
@@ -180,9 +189,9 @@ func (cfg *apiConfig) handleUpdateCreds(w http.ResponseWriter, r *http.Request) 
 	}
 
 	user, err = cfg.db.UpdateUserCreds(r.Context(), database.UpdateUserCredsParams{
-		Email: newCreds.Email,
+		Email:          newCreds.Email,
 		HashedPassword: hashedPassword,
-		ID: user.ID,
+		ID:             user.ID,
 	})
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, err.Error())
@@ -192,4 +201,63 @@ func (cfg *apiConfig) handleUpdateCreds(w http.ResponseWriter, r *http.Request) 
 	respondWithJSON(w, http.StatusOK, response{
 		Email: user.Email,
 	})
+}
+
+func (cfg *apiConfig) handleUserChirpSubscription(w http.ResponseWriter, r *http.Request) {
+
+	const UPGRADE = "user.upgraded"
+
+	type payLoad struct {
+		Event string `json:"event"`
+		Data  struct {
+			UserID string `json:"user_id"`
+		} `json:"data"`
+	}
+
+	eventData := payLoad{}
+	decoder := json.NewDecoder(r.Body)
+	err := decoder.Decode(&eventData)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	if strings.ToLower(eventData.Event) != UPGRADE {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
+	userID, err := uuid.Parse(eventData.Data.UserID)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	userData, err := cfg.db.GetUserByID(r.Context(), userID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			respondWithError(w, http.StatusNotFound, "user not found")
+		}
+		respondWithError(w, http.StatusNotFound, err.Error())
+		return
+	}
+
+	if userData.IsChirpyRed.Bool {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
+	userData, err = cfg.db.UpdateUserChirpSubscription(r.Context(), userData.ID)
+	fmt.Println("user data is_chirpy_red:", userData.IsChirpyRed.Bool)
+
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	respondWithJSON(w, http.StatusNoContent, User{
+		ID:         userData.ID,
+		IsChirpRed: userData.IsChirpyRed.Bool,
+	})
+
 }

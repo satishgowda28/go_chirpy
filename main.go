@@ -69,6 +69,7 @@ func main () {
 	mux.HandleFunc("GET /api/chirps", apiCfg.getAllChirps)
 	mux.HandleFunc("GET /api/chirps/{chirpID}", apiCfg.getChirp)
 	mux.HandleFunc("DELETE /api/chirps/{chirpID}", apiCfg.handleDeleteChirp)
+	mux.HandleFunc("POST /api/polka/webhooks", apiCfg.handleUserChirpSubscription)
 
 	/* TESTING ---- Pathvalue */
 	/* mux.HandleFunc("GET /api/test/{id}/{name}", func(w http.ResponseWriter, r *http.Request) {
