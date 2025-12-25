@@ -12,11 +12,11 @@ import (
 	"github.com/satishgowda28/go_chirpy/internal/database"
 )
 
-
 type apiConfig struct {
 	fileServerHits atomic.Int32
-	db *database.Queries
-	secret string
+	db             *database.Queries
+	secret         string
+	polkaApiKey    string
 }
 
 func handleFileServe(w http.ResponseWriter, r *http.Request) {
@@ -25,14 +25,14 @@ func handleFileServe(w http.ResponseWriter, r *http.Request) {
 	// http.StripPrefix("/app", http.FileServer(http.Dir("./")))
 }
 
-
-func main () {
+func main() {
 
 	godotenv.Load()
 
 	port := "8080"
 	dbURL := os.Getenv("DB_URL")
 	tokenSec := os.Getenv("TOKEN_SEC")
+	polkaKey := os.Getenv("POLKA_KEY")
 	if dbURL == "" {
 		log.Fatal("DB_URL must be set")
 	}
@@ -44,17 +44,18 @@ func main () {
 	dbQueries := database.New(db)
 
 	mux := http.NewServeMux()
-	
+
 	apiCfg := apiConfig{
 		fileServerHits: atomic.Int32{},
-		db: dbQueries,
-		secret: tokenSec,
+		db:             dbQueries,
+		secret:         tokenSec,
+		polkaApiKey:    polkaKey,
 	}
 	mux.Handle("/app/assets/", apiCfg.middlewareMetricsInc(http.StripPrefix("/app", http.FileServer(http.Dir("./")))))
 	mux.Handle("/app/", apiCfg.middlewareMetricsInc(http.HandlerFunc(handleFileServe)))
-	
+
 	mux.HandleFunc("GET /api/healthz", checkReadiness)
-	
+
 	mux.HandleFunc("GET /admin/metrics", apiCfg.getMetrics)
 	mux.HandleFunc("POST /admin/reset", apiCfg.resetMetrics)
 
@@ -80,9 +81,8 @@ func main () {
 		w.Write([]byte(fmt.Sprintf("id: %s, name: %s", id, strings.Trim(name," "))))
 	}) */
 
-	
 	serv := &http.Server{
-		Addr: ":"+port,
+		Addr:    ":" + port,
 		Handler: mux,
 	}
 

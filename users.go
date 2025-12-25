@@ -214,9 +214,20 @@ func (cfg *apiConfig) handleUserChirpSubscription(w http.ResponseWriter, r *http
 		} `json:"data"`
 	}
 
+	apiKey, err := auth.GetAPIKey(r.Header)
+	if err != nil {
+		respondWithError(w, http.StatusUnauthorized, err.Error())
+		return
+	}
+
+	if apiKey != cfg.polkaApiKey {
+		respondWithError(w, http.StatusUnauthorized, "Api key is invalid")
+		return
+	}
+
 	eventData := payLoad{}
 	decoder := json.NewDecoder(r.Body)
-	err := decoder.Decode(&eventData)
+	err = decoder.Decode(&eventData)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, err.Error())
 		return

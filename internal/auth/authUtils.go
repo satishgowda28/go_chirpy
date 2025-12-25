@@ -13,7 +13,6 @@ import (
 	"github.com/google/uuid"
 )
 
-
 func HashPassord(password string) (string, error) {
 	hashedPass, err := argon2id.CreateHash(password, argon2id.DefaultParams)
 	if err != nil {
@@ -34,16 +33,16 @@ func CheckPasswordHash(password, hash string) (bool, error) {
 func MakeJWT(userID uuid.UUID, tokenSecret string, expiresIn time.Duration) (string, error) {
 	currentTime := time.Now().UTC()
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, &jwt.RegisteredClaims{
-		Issuer: "chirpy",
-		IssuedAt: jwt.NewNumericDate(currentTime),
+		Issuer:    "chirpy",
+		IssuedAt:  jwt.NewNumericDate(currentTime),
 		ExpiresAt: jwt.NewNumericDate(currentTime.Add(expiresIn)),
-		Subject: userID.String(),
+		Subject:   userID.String(),
 	})
 	ss, err := token.SignedString([]byte(tokenSecret))
 	if err != nil {
-		return "",err
+		return "", err
 	}
-	return ss,nil
+	return ss, nil
 }
 
 func ValidateJWT(tokenString, tokenSecret string) (uuid.UUID, error) {
@@ -66,6 +65,16 @@ func ValidateJWT(tokenString, tokenSecret string) (uuid.UUID, error) {
 	return id, nil
 }
 
+func MakeRefreshToken() (string, error) {
+	key := make([]byte, 32)
+	_, err := rand.Read(key)
+	if err != nil {
+		return "", err
+	}
+	encodedStr := hex.EncodeToString([]byte(key))
+	return encodedStr, nil
+}
+
 func GetBearerToken(header http.Header) (string, error) {
 	authToken := header.Get("Authorization")
 	if authToken == "" {
@@ -84,14 +93,21 @@ func GetBearerToken(header http.Header) (string, error) {
 	return token, nil
 }
 
-func MakeRefreshToken() (string, error) {
-	key := make([]byte, 32)
-	_, err := rand.Read(key)
-	if err != nil {
-		return "", err
+func GetAPIKey(header http.Header) (string, error) {
+	apiKey := header.Get("Authorization")
+	if apiKey == "" {
+		return "", errors.New("api key is empty")
 	}
-	encodedStr := hex.EncodeToString([]byte(key))
-	return encodedStr, nil
+	if !strings.HasPrefix(apiKey, "ApiKey ") {
+		return "", errors.New("api key is invalid")
+	}
+
+	key := strings.TrimPrefix(apiKey, "ApiKey ")
+	key = strings.TrimSpace(key)
+
+	if key == "" {
+		return "", errors.New("api token is empty")
+	}
+
+	return key, nil
 }
-
-

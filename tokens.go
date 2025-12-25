@@ -9,7 +9,7 @@ import (
 	"github.com/satishgowda28/go_chirpy/internal/auth"
 )
 
-func(cfg *apiConfig) handleResetToken(w http.ResponseWriter, r *http.Request) {
+func (cfg *apiConfig) handleResetToken(w http.ResponseWriter, r *http.Request) {
 	type response struct {
 		Token string `json:"token"`
 	}
@@ -26,16 +26,17 @@ func(cfg *apiConfig) handleResetToken(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	now := time.Now().UTC()
-	if tokenData.ExpiresAt.Time.Before(now) {
+
+	if tokenData.ExpiresAt.Before(now) {
 		respondWithError(w, http.StatusUnauthorized, "Token is expired")
 		return
 	}
-	
+
 	if tokenData.RevokedAt.Valid {
 		respondWithError(w, http.StatusUnauthorized, "Token is loggedout")
 		return
 	}
-	
+
 	jwtToken, err := auth.MakeJWT(tokenData.UserID, cfg.secret, time.Hour)
 
 	if err != nil {
@@ -48,13 +49,13 @@ func(cfg *apiConfig) handleResetToken(w http.ResponseWriter, r *http.Request) {
 
 }
 
-func(cfg *apiConfig) handleRevokeRefreshToken(w http.ResponseWriter, r *http.Request) {
+func (cfg *apiConfig) handleRevokeRefreshToken(w http.ResponseWriter, r *http.Request) {
 
 	rfToken, err := auth.GetBearerToken(r.Header)
 	if err != nil {
 		respondWithError(w, http.StatusUnauthorized, err.Error())
 	}
-	
+
 	tokenData, err := cfg.db.GetUserFromRefreshToken(r.Context(), rfToken)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
